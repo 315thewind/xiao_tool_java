@@ -28,35 +28,70 @@ public class MenuInitializer implements CommandLineRunner {
     @Override
     public void run(String... args) {
         try (SqlSession sqlSession = sqlSessionFactory.openSession()) {
-            // 先清理重复菜单
-            cleanupDuplicateMenus(sqlSession);
+            // 动态解析目录菜单 id，禁止硬编码（历史 bug：写死 parent_id=2 实际指向"组织管理"）
+            Integer toolsId = findDirIdByPath(sqlSession, "/tools");
+            Integer systemId = findDirIdByPath(sqlSession, "/system");
+
+            // 先清理重复菜单 / 修正父级
+            cleanupDuplicateMenus(sqlSession, toolsId, systemId);
             // 初始化菜单
-            initMenuIfNotExists(sqlSession, "数据字典", "dict", "system/dict/index", "Collection", 1, 6);
-            initMenuIfNotExists(sqlSession, "数据库查询", "db-query", "db-query/index", "DataBase", 2, 3);
+            if (systemId != null) {
+                initMenuIfNotExists(sqlSession, "数据字典", "dict", "system/dict/index", "Collection", systemId, 6);
+            }
+            if (toolsId != null) {
+                initMenuIfNotExists(sqlSession, "数据库查询", "db-query", "db-query/index", "DataBase", toolsId, 3);
+            }
             sqlSession.commit();
         } catch (Exception e) {
             log.warn("菜单初始化失败，可能是数据库表尚未创建: {}", e.getMessage());
         }
     }
 
-    private void cleanupDuplicateMenus(SqlSession sqlSession) {
+    /**
+     * 按目录路径查目录菜单 id，避免硬编码主键。
+     */
+    private Integer findDirIdByPath(SqlSession sqlSession, String dirPath) {
         try {
-            // 1. 将数据库查询菜单移动到日常工具(parent_id=2)下，并设置排序
-            String updateDbQuerySql = "UPDATE sys_menu SET parent_id = 2, sort_order = 3 WHERE path = 'db-query' AND parent_id != 2";
-            PreparedStatement updateDbQueryStmt = sqlSession.getConnection().prepareStatement(updateDbQuerySql);
-            int updatedCount = updateDbQueryStmt.executeUpdate();
-            if (updatedCount > 0) {
-                log.info("已将数据库查询菜单移动到日常工具目录下");
+            String sql = "SELECT id FROM sys_menu WHERE path = ? AND parent_id = 0 ORDER BY id ASC LIMIT 1";
+            PreparedStatement stmt = sqlSession.getConnection().prepareStatement(sql);
+            stmt.setString(1, dirPath);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) {
+                return rs.getInt(1);
             }
-            
-            // 2. 确保数据字典菜单在系统管理(parent_id=1)下
-            String updateDictSql = "UPDATE sys_menu SET parent_id = 1, sort_order = 6 WHERE path = 'dict' AND parent_id != 1";
-            PreparedStatement updateDictStmt = sqlSession.getConnection().prepareStatement(updateDictSql);
-            int dictUpdatedCount = updateDictStmt.executeUpdate();
-            if (dictUpdatedCount > 0) {
-                log.info("已将数据字典菜单移动到系统管理目录下");
+            log.warn("未找到目录菜单: {}", dirPath);
+        } catch (Exception e) {
+            log.warn("查询目录菜单 {} 失败: {}", dirPath, e.getMessage());
+        }
+        return null;
+    }
+
+    private void cleanupDuplicateMenus(SqlSession sqlSession, Integer toolsId, Integer systemId) {
+        try {
+            // 1. 将数据库查询菜单移动到"日常工具"目录下，并设置排序
+            if (toolsId != null) {
+                String updateDbQuerySql = "UPDATE sys_menu SET parent_id = ?, sort_order = 3 WHERE path = 'db-query' AND parent_id <> ?";
+                PreparedStatement updateDbQueryStmt = sqlSession.getConnection().prepareStatement(updateDbQuerySql);
+                updateDbQueryStmt.setInt(1, toolsId);
+                updateDbQueryStmt.setInt(2, toolsId);
+                int updatedCount = updateDbQueryStmt.executeUpdate();
+                if (updatedCount > 0) {
+                    log.info("已将数据库查询菜单移动到日常工具目录下(parent_id={})", toolsId);
+                }
             }
-            
+
+            // 2. 确保数据字典菜单在"系统管理"目录下
+            if (systemId != null) {
+                String updateDictSql = "UPDATE sys_menu SET parent_id = ?, sort_order = 6 WHERE path = 'dict' AND parent_id <> ?";
+                PreparedStatement updateDictStmt = sqlSession.getConnection().prepareStatement(updateDictSql);
+                updateDictStmt.setInt(1, systemId);
+                updateDictStmt.setInt(2, systemId);
+                int dictUpdatedCount = updateDictStmt.executeUpdate();
+                if (dictUpdatedCount > 0) {
+                    log.info("已将数据字典菜单移动到系统管理目录下(parent_id={})", systemId);
+                }
+            }
+
             // 3. 清理其他重复菜单
             String[] menuPaths = {"dict", "db-query"};
             for (String path : menuPaths) {
