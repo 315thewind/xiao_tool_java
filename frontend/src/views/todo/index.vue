@@ -225,17 +225,14 @@ async function loadData() {
     const params = {
       page: query.page,
       size: query.size,
+      keyword: query.keyword,
       status: query.status,
       priority: query.priority
     }
     const res = await getTodoPage(params)
     const records = res.data?.records || res.data?.list || []
-    tableData.value = records.map(normalizeTodo).filter((item) => {
-      if (!query.keyword) return true
-      const kw = query.keyword.toLowerCase()
-      return (item.title || '').toLowerCase().includes(kw) || (item.remark || '').toLowerCase().includes(kw)
-    })
-    total.value = res.data?.total || tableData.value.length
+    tableData.value = records.map(normalizeTodo)
+    total.value = res.data?.total || 0
   } catch (error) {
     tableData.value = []
     total.value = 0

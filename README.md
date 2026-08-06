@@ -259,3 +259,41 @@ A: 可以配置淘宝镜像：
 ```bash
 npm config set registry https://registry.npmmirror.com/
 ```
+
+## 已知问题修复（2026-08-06）
+
+### 1. 待办/备忘录等页面「刷新变成 404」
+
+- **根因**：`frontend/src/router/index.js` 的动态路由守卫里使用了 `next({ ...to, replace: true })`。
+  `to` 是带 `matched` 数组的已解析路由对象，展开后把空 `matched` 一并传给 `next()`，
+  Vue Router 4 据此认为该 location 已解析、跳过重新匹配，直接落到 catch-all → 404。
+  首次 SPA 跳转时 `registeredRouteNames` 已存在而走 `next()` 放行，所以「能打开、一刷新就 404」。
+- **修复**：改为 `next({ path: to.path, query: to.query, hash: to.hash, replace: true })`，
+  并给兜底路由固定 `name: 'CatchAll404'` 防止重复注册。
+- **访问模式说明**：本项目前端使用 `createWebHashHistory()`（hash 模式，`start.bat` → `npm run dev` :2221），
+  刷新时浏览器只请求 `/`，不存在服务器侧 404。若改用 `npm run build` 并以 history 模式部署，
+  需由静态服务器（nginx 等）配置 SPA fallback（所有路径回退到 `index.html`）。
+
+### 2. 组织新增/编辑报「column does not exist」
+
+- **根因**：Java 实体 `SysOrg` 含 `leader / phone / remark` 字段，但 `sql/init_postgres.sql` 的
+  `sys_org` 建表语句缺少这三列；项目未启用 Flyway，迁移脚本不会自动执行，全新初始化库即缺列。
+- **修复**：已在 `sql/init_postgres.sql` 的 `sys_org` 表中补齐 `leader / phone / remark` 三列。
+- **注意**：若数据库是升级（非全新 init），请手动补列：
+  ```sql
+  ALTER TABLE sys_org ADD COLUMN IF NOT EXISTS leader VARCHAR(100);
+  ALTER TABLE sys_org ADD COLUMN IF NOT EXISTS phone VARCHAR(50);
+  ALTER TABLE sys_org ADD COLUMN IF NOT EXISTS remark TEXT;
+  ```
+
+### 3. 清理孤儿接口
+
+- 删除了未被前端调用的 `DbQueryController`（`/api/app/db/query`）及其 `DbQueryService` /
+  `DbQueryServiceImpl`。前端数据库查询功能实际使用 `DbConnectionController`（`/api/app/db-connections/*`）。
+
+### 架构说明（重要）
+
+- 当前为 **单一 Java 后端**（Spring Boot，端口 2222）+ PostgreSQL（端口 5432，见 `docker-compose.yml`）
+  + Vue 3 前端（端口 2221）。
+- 早期版本曾存在独立的 `backend-python`（FastAPI）用于待办/备忘录/记账，已于重构中删除并合并进 Java 后端，
+  相关旧文档 `FIXES_SUMMARY.md` 已移除，以本 README 为准。

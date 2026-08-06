@@ -115,11 +115,17 @@ router.beforeEach(async (to, from, next) => {
       registeredRouteNames.add(route.name)
     })
 
-    // 添加兜底路由
-    router.addRoute({ path: '/:pathMatch(.*)*', redirect: '/404', hidden: true })
+    // 添加兜底路由（仅注册一次，用 name 防止重复 addRoute）
+    if (!router.hasRoute('CatchAll404')) {
+      router.addRoute({ name: 'CatchAll404', path: '/:pathMatch(.*)*', redirect: '/404', hidden: true })
+    }
 
-    // 重新导航，确保 addRoute 生效
-    next({ ...to, replace: true })
+    // 重新导航：必须传“干净的 location”，不能把 to 展开后传入。
+    // 原因：to 是已带 matched 数组的 RouteLocationNormalized；
+    // 若把 matched 一起交给 next()，Vue Router 4 会认为该 location 已解析，
+    // 直接沿用（此时为空的）matched → 命中 catch-all → 刷新即 404。
+    // 这正是「能打开、一刷新就 404」的根因。
+    next({ path: to.path, query: to.query, hash: to.hash, replace: true })
   } catch (e) {
     console.error('生成动态路由失败:', e)
     const { useUserStore } = await import('@/store/user')

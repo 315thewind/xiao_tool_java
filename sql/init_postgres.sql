@@ -21,6 +21,9 @@ CREATE TABLE IF NOT EXISTS sys_org (
     sort_order  INTEGER NOT NULL DEFAULT 0,
     status      SMALLINT NOT NULL DEFAULT 1,
     leader_id   INTEGER,
+    leader      VARCHAR(100),
+    phone       VARCHAR(50),
+    remark      TEXT,
     created_at  TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMP NOT NULL DEFAULT NOW()
 );
